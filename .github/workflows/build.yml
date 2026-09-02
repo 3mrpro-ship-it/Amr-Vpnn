@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      -       - name: Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -25,7 +25,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'jetbrains'
+          distribution: 'temurin'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -33,7 +33,7 @@ jobs:
       - name: Install Android NDK
         run: |
           sdkmanager --install "ndk;29.0.14206865"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
       - name: Cache Rust/Cargo
         uses: actions/cache@v4
@@ -73,7 +73,10 @@ jobs:
         run: |
           for abi in arm64-v8a armeabi-v7a x86_64; do
             for lib in libssl.a libcrypto.a; do
-              test -f ~/android-openssl/android-ssl/$abi/lib/$lib || { echo "Missing $abi/lib/$lib"; exit 1; }
+              test -f "$HOME/android-openssl/android-ssl/$abi/lib/$lib" || {
+                echo "Missing $lib for $abi"
+                exit 1
+              }
             done
           done
           echo "OpenSSL verification passed"
@@ -81,105 +84,4 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: gomobile-build/go.mod
-          cache-dependency-path: gomobile-build/go.sum
-      - name: Install gomobile
-        working-directory: gomobile-build
-        run: |
-          GO_MOBILE_VERSION=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
-          echo "Using golang.org/x/mobile@$GO_MOBILE_VERSION"
-          go install golang.org/x/mobile/cmd/gomobile@$GO_MOBILE_VERSION
-          go install golang.org/x/mobile/cmd/gobind@$GO_MOBILE_VERSION
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-      - name: Build Go mobile libraries
-        working-directory: gomobile-build
-        run: |
-          gomobile bind -trimpath -target android/arm,android/arm64,android/amd64 -androidapi 21 -ldflags '-s -w -checklinkname=0 -extldflags -Wl,-z,max-page-size=16384,-z,common-page-size=16384' -o ../app/libs/golibs-full.aar noizdns/mobile vaydns-mobile/vaydns snowflake-mobile/snowflake
-          gomobile bind -trimpath -target android/arm,android/arm64,android/amd64 -androidapi 21 -ldflags '-s -w -checklinkname=0 -extldflags -Wl,-z,max-page-size=16384,-z,common-page-size=16384' -o ../app/libs/golibs-lite.aar noizdns/mobile vaydns-mobile/vaydns
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Decode Keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > slipnet-release.keystore
-            echo "KEYSTORE_DECODED=true" >> $GITHUB_ENV
-          fi
-
-      - name: Create keystore.properties
-        if: env.KEYSTORE_DECODED == 'true'
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          cat > keystore.properties <<EOF
-          storeFile=../slipnet-release.keystore
-          storePassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          EOF
-          # Strip leading whitespace from heredoc indentation
-          sed -i 's/^[[:space:]]*//' keystore.properties
-
-      - name: Set up local.properties
-        env:
-          CONFIG_ENCRYPTION_KEY: ${{ secrets.CONFIG_ENCRYPTION_KEY }}
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "CONFIG_ENCRYPTION_KEY=$CONFIG_ENCRYPTION_KEY" >> local.properties
-
-      - name: Build Full Release APK
-        run: ./gradlew assembleFullRelease --no-daemon
-
-      - name: Build Lite Release APK
-        run: ./gradlew assembleLiteRelease --no-daemon
-
-      - name: Collect release APKs
-        run: |
-          mkdir -p release-apks
-          cp app/build/outputs/apk/full/release/AMR-VPN-*-full-*.apk release-apks/ 2>/dev/null || true
-          cp app/build/outputs/apk/lite/release/AMR-VPN-*-lite-*.apk release-apks/ 2>/dev/null || true
-
-      - name: Upload Release APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: release-apks/*.apk
-          retention-days: 5
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download Release APK
-        uses: actions/download-artifact@v4
-        with:
-          name: app-release
-          path: ./artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./artifacts/*.apk
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') || contains(github.ref, 'rc') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          go-version-file: gom
