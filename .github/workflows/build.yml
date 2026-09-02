@@ -79,9 +79,4 @@ jobs:
               }
             done
           done
-          echo "OpenSSL verification passed"
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: gom
+          echo "OpenSSL
